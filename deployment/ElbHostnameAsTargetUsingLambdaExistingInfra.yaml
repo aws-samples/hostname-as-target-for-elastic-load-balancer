@@ -231,19 +231,19 @@ Resources:
     Type: Custom::S3EditObject
     Properties:
       ServiceToken: !GetAtt S3ObjectLambda.Arn
-      SrcS3Bucket: prm-demos-us-west-2
+      SrcS3Bucket: tech-content-us-west-2
       DstS3Bucket: !If [CreateDstS3Bucket, !Ref S3BucketForLambda, !Ref DstS3BucketName]
-      ObjName: ElbHostnameAsTarget.zip
+      ObjName: "elb-hostname-as-target/ElbHostnameAsTarget.zip"
       AwsRegion: !Ref AWS::Region
 
   ElbHostnameTarget:
     Type: AWS::Lambda::Function
     Properties:
-      Handler: "elb_hostame_as_target.handler"
+      Handler: "elb_hostame_as_target.lambda_handler"
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         S3Bucket: !If [CreateDstS3Bucket, !Ref S3BucketForLambda, !Ref DstS3BucketName]
-        S3Key: ElbHostnameAsTarget.zip
+        S3Key: elb-hostname-as-target/ElbHostnameAsTarget.zip
       Environment:
         Variables:
           TARGET_FQDN: !Ref TargetFQDN
