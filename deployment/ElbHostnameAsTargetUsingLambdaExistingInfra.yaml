@@ -27,7 +27,7 @@ Metadata:
           - DstS3BucketName
           - CreateDstS3BucketCondition      
       - Label:
-          default: 'User Configurable Lambda Environment Variables'
+          default: User Configurable Lambda Environment Variables
         Parameters:
           - ElbTargetGroupArn
           - TargetFQDN
@@ -36,12 +36,21 @@ Metadata:
           - InvocationBeforeRegistration
           - ReportIpCountCwMetric
           - RemoveUntrackedTgIp
+      - Label:
+          default: CloudWatch Alarm Configuation
+        Parameters:
+          - CreateAlarmCondition
+          - CompositeAlarmSnsEmail
 
     ParameterLabels:
       DstS3BucketName:
         default: Destination S3 Bucket Name        
       CreateDstS3BucketCondition:
         default: Create S3 bucket condition
+      CompositeAlarmSnsEmail:
+        default: Email for SNS Topic for Composite Alarm
+      CreateAlarmCondition:
+        default: Create CloudWatch Alarm condition
       ElbTargetGroupArn:
         default: ARN of Target Group assocated with desired Network Load Balancer
       TargetFQDN:
@@ -66,12 +75,24 @@ Parameters:
     ConstraintDescription: Must be globally unique S3 bucket name.  
   CreateDstS3BucketCondition: 
     Description: >- 
-      Do you want to create new S3 bucket or use an existing one? If using
-      existing bucket, verify launch stack region and bucket region are same.
+      Do you want to create new S3 bucket or use an existing one? If you using
+      an existing bucket, verify it is in the same region as the region from
+      from you are launching this stack (launch stack region).
     Default: "No"
     AllowedValues: ["Yes", "No"]
     Type: String
     ConstraintDescription: Must be a valid Yes or No option
+  CreateAlarmCondition: 
+    Description: >- 
+      Do you want to create CloudWatch Alarm for Lambda?
+    Default: "Yes"
+    AllowedValues: ["Yes", "No"]
+    Type: String
+    ConstraintDescription: Must be a valid Yes or No option
+  CompositeAlarmSnsEmail:
+    Description: Email for SNS Topic for Composite Alarm
+    Type: String
+    ConstraintDescription: Must be a valid email. 
   ElbTargetGroupArn:
     Description: >-
       Enter ARN of Target Group associated with desired Network Load Balancer
@@ -118,6 +139,9 @@ Parameters:
 Conditions:
   CreateDstS3Bucket: !Equals
     - !Ref CreateDstS3BucketCondition
+    - "Yes"
+  CreateAlarms: !Equals
+    - !Ref CreateAlarmCondition
     - "Yes"
 
 Resources:
@@ -168,7 +192,7 @@ Resources:
                   - elasticloadbalancing:DeregisterTargets                                             
                   - ssm:GetParameter
                 Resource: "*"
-
+  
   S3ObjectLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -177,10 +201,13 @@ Resources:
         - LambdaExecutionRole
         - Arn
       Code:
-        ZipFile: |
+        ZipFile: !Sub |
           import json
           import logging
+          import os
           import sys
+          import urllib.request
+          from urllib.parse import urlparse
 
           import boto3
           import cfnresponse
@@ -191,7 +218,17 @@ Resources:
               s3_client = boto3.client('s3')
           except ClientError as e:
               logger.error(f"ERROR: failed to connect to S3 resource or client: {e}")
-              sys.exit(1)          
+              sys.exit(1)
+
+          def obj_info(url):
+              url_path = urlparse(url).path
+              obj_name = os.path.basename(url_path)
+              obj_path = f'/tmp/{obj_name}'
+              return obj_name, obj_path
+          
+          def upload_to_s3(url, dst_bucket, obj_path, obj_name):
+              urllib.request.urlretrieve(url, obj_path)
+              s3_resource.Bucket(dst_bucket).upload_file(Filename=obj_path, Key=obj_name)
 
           def handler(event, context):
               logger = logging.getLogger()
@@ -203,9 +240,8 @@ Resources:
 
               print(event["ResourceProperties"])
               try:
-                  src_s3 = event["ResourceProperties"]["SrcS3Bucket"]
+                  src_url = event["ResourceProperties"]["SourceUrl"]
                   dst_s3 = event["ResourceProperties"]["DstS3Bucket"]
-                  obj_name = event["ResourceProperties"]["ObjName"]
                   aws_region = event["ResourceProperties"]["AwsRegion"]
               except Exception as e:
                   logger.error(f"parameter retival failure: {e}")
@@ -214,16 +250,22 @@ Resources:
               if isinstance(dst_s3, list):
                   dst_s3 = dst_s3[0]
 
-              if event["RequestType"] == "Delete":            
-                  s3_resource.Object(dst_s3, obj_name).delete()
-                  responseStatus = cfnresponse.SUCCESS
-                  cfnresponse.send(event, context, responseStatus, responseData)
+              obj_name = obj_info(src_url)[0]
+              obj_path = obj_info(src_url)[1]
+              try:
+                  if event["RequestType"] == "Delete":    
+                      s3_resource.Object(dst_s3, obj_name).delete()
+                      responseStatus = cfnresponse.SUCCESS
+                      cfnresponse.send(event, context, responseStatus, responseData)
+              except Exception:
+                  logger.exception("Signaling failure to CloudFormation.")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {})
               if event["RequestType"] == "Create":
-                  logger.info(f"INFO: Copying {obj_name} from {src_s3} to {dst_s3}")
-                  copy_source = {'Bucket': src_s3, 'Key': obj_name}
-                  s3_resource.Object(dst_s3, obj_name).copy(copy_source)
+                  logger.info(f"INFO: Copying {obj_name} to {dst_s3}")
+                  upload_to_s3(src_url, dst_s3, obj_path, obj_name)
                   responseStatus = cfnresponse.SUCCESS
                   cfnresponse.send(event, context, responseStatus, responseData)
+
       Runtime: python3.7
       Timeout: 45
 
@@ -231,19 +273,18 @@ Resources:
     Type: Custom::S3EditObject
     Properties:
       ServiceToken: !GetAtt S3ObjectLambda.Arn
-      SrcS3Bucket: tech-content-us-west-2
+      SourceUrl: https://github.com/aws-samples/hostname-as-target-for-elastic-load-balancer/blob/main/source/ElbHostnameAsTarget.zip?raw=true
       DstS3Bucket: !If [CreateDstS3Bucket, !Ref S3BucketForLambda, !Ref DstS3BucketName]
-      ObjName: "elb-hostname-as-target/ElbHostnameAsTarget.zip"
       AwsRegion: !Ref AWS::Region
 
   ElbHostnameTarget:
     Type: AWS::Lambda::Function
     Properties:
-      Handler: "elb_hostame_as_target.lambda_handler"
+      Handler: "elb_hostname_as_target.lambda_handler"
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         S3Bucket: !If [CreateDstS3Bucket, !Ref S3BucketForLambda, !Ref DstS3BucketName]
-        S3Key: elb-hostname-as-target/ElbHostnameAsTarget.zip
+        S3Key: ElbHostnameAsTarget.zip
       Environment:
         Variables:
           TARGET_FQDN: !Ref TargetFQDN
@@ -262,8 +303,8 @@ Resources:
     Type: AWS::Events::Rule
     Properties:
       Description: ScheduledRule
-      Name: ElbHostnameAsTargetEventbridgeTrigger
-      ScheduleExpression: rate(3 minutes)
+      Name: ElbHostnameAsTargetEbTrigger
+      ScheduleExpression: rate(5 minutes)
       State: ENABLED
       Targets:
         -
@@ -278,6 +319,78 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt LambdaEventRule.Arn
 
+  SnsTopic:
+    Condition: CreateAlarms
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref CompositeAlarmSnsEmail
+          Protocol: email
+      TopicName: !Join
+        - ''
+        - - !Ref ElbHostnameTarget
+          - '-sns-topic'
+
+  LambdaInvocationsAlarm:
+    Condition: CreateAlarms
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Lambda invocations. Alarms when function invocation reports an error
+      AlarmName: !Join
+        - ''
+        - - !Ref ElbHostnameTarget
+          - '-invocations'
+      MetricName: Invocations
+      Namespace: AWS/Lambda
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ElbHostnameTarget
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1  
+      ComparisonOperator: LessThanThreshold
+      Statistic: Sum
+      TreatMissingData: breaching
+
+  LambdaErrorsAlarm:
+    Condition: CreateAlarms
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Lambda errors. Alarm when function reports an error
+      AlarmName: !Join
+        - ''
+        - - !Ref ElbHostnameTarget
+          - '-errors'
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ElbHostnameTarget
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Statistic: Sum
+      TreatMissingData: breaching
+
+  LambdaCompositeAlarm:
+    Condition: CreateAlarms
+    Type: AWS::CloudWatch::CompositeAlarm
+    DependsOn:
+      - LambdaInvocationsAlarm
+      - LambdaErrorsAlarm    
+    Properties:
+      AlarmName: !Join
+        - ''
+        - - !Ref ElbHostnameTarget
+          - '-monitor'
+      AlarmRule: !Sub "(ALARM(${LambdaErrorsAlarm}) OR ALARM(${LambdaInvocationsAlarm}))"
+      AlarmActions: 
+        - !Ref SnsTopic
+      AlarmDescription: Lambda composite. Alarm triggers when either of the metric alarms trigger
+
 Outputs:
   S3ObjectLambdaArn:
     Description: S3Object Lambda ARN
@@ -285,3 +398,19 @@ Outputs:
   ElbHostnameTargetArn:
     Description: ElbHostnameTarget Lambda ARN
     Value: !GetAtt ElbHostnameTarget.Arn
+  ElbSnsTopic:
+    Condition: CreateAlarms
+    Description: 'ELB SNS Topic'
+    Value: !GetAtt SnsTopic.TopicName
+  ElbLambdaInvocationsAlarm:
+    Condition: CreateAlarms
+    Description: 'ELB Lambda Invocations Alarm'
+    Value: !GetAtt LambdaInvocationsAlarm.Arn
+  ElbLambdaErrorsAlarm:
+    Condition: CreateAlarms
+    Description: 'ELB Lambda Errors Alarm'
+    Value: !GetAtt LambdaErrorsAlarm.Arn
+  ElbLambdaCompositeAlarm:
+    Condition: CreateAlarms
+    Description: 'ELB Lambda Composite Alarm'
+    Value: !GetAtt LambdaCompositeAlarm.Arn

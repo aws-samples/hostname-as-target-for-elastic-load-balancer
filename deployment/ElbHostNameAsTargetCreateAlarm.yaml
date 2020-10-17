@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >-
+  This template creates Amazon CloudWatch Alarms for Elastic Load Balancer
+  Lambda POC. Template creates following resources:
+    - One SNS topic to use with composite alarm
+    - Two invocation metrics based alarms: (Errors,Invocations)
+    - One composite alarm with above two alarm part of it
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Alarm Configuation
+        Parameters:
+          - LambdaFunctionName
+          - TopicEmailEndpoint
+
+    ParameterLabels:
+      LambdaFunctionName:
+        default: Name of Lambda Function
+      TopicEmailEndpiont:
+        default: Email for SNS Topic        
+
+Parameters:
+  LambdaFunctionName:
+    Description: Name of Lambda function for which you want to create Alarm
+    Type: String
+    ConstraintDescription: Must be a valid Lambda funciton name.  
+  TopicEmailEndpoint:
+    Description: Email for SNS Topic
+    Type: String
+    ConstraintDescription: Must be a valid email. 
+
+Resources:
+
+  SnsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref TopicEmailEndpoint
+          Protocol: email
+      TopicName: !Join
+        - ''
+        - - !Ref LambdaFunctionName
+          - '-sns-topic'
+
+  LambdaInvocationsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Lambda invocations. Alarms when function invocation reports an error
+      AlarmName: !Join
+        - ''
+        - - !Ref LambdaFunctionName
+          - '-invocations'
+      ComparisonOperator: LessThanLowerOrGreaterThanUpperThreshold
+      EvaluationPeriods: 1
+      Metrics:
+      - Expression: ANOMALY_DETECTION_BAND(m1, 2)
+        Id: ad1
+      - Id: m1
+        MetricStat:
+          Metric:
+            Dimensions:
+              - Name: FunctionName
+                Value: !Ref LambdaFunctionName
+            MetricName: Invocations
+            Namespace: AWS/Lambda
+          Period: !!int 60
+          Stat: Sum
+      ThresholdMetricId: ad1
+      TreatMissingData: breaching
+
+  LambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Lambda errors. Alarm when function reports an error
+      AlarmName:  !Join
+        - ''
+        - - !Ref LambdaFunctionName
+          - '-invocations'
+      ComparisonOperator: LessThanLowerOrGreaterThanUpperThreshold
+      EvaluationPeriods: 1
+      Metrics:
+      - Expression: ANOMALY_DETECTION_BAND(m1, 2)
+        Id: ad1
+      - Id: m1
+        MetricStat:
+          Metric:
+            Dimensions:
+              - Name: FunctionName
+                Value: !Ref LambdaFunctionName         
+            MetricName: Errors
+            Namespace: AWS/Lambda
+          Period: !!int 60
+          Stat: Sum
+      ThresholdMetricId: ad1
+      TreatMissingData: breaching
+
+  LambdaCompositeAlarm:
+    Type: AWS::CloudWatch::CompositeAlarm
+    DependsOn:
+      - LambdaInvocationsAlarm
+      - LambdaErrorsAlarm    
+    Properties:
+      AlarmName: elb-hostname-as-target-monitor
+      AlarmRule: !Sub "(ALARM(${LambdaErrorsAlarm}) OR ALARM(${LambdaInvocationsAlarm}))"
+      AlarmActions: 
+        - !Ref SnsTopic
+      AlarmDescription: Lambda composite. Alarm triggers when either of the metric alarms trigger
+
+
+Outputs:
+  ElbSnsTopic:
+    Description: 'ELB SNS Topic'
+    Value: !GetAtt SnsTopic.TopicName
+  ElbLambdaInvocationsAlarm:
+    Description: 'ELB Lambda Invocations Alarm'
+    Value: !GetAtt LambdaInvocationsAlarm.Arn
+  ElbLambdaErrorsAlarm:
+    Description: 'ELB Lambda Errors Alarm'
+    Value: !GetAtt LambdaErrorsAlarm.Arn
+  ElbLambdaCompositeAlarm:
+    Description: 'ELB Lambda Composite Alarm'
+    Value: !GetAtt LambdaCompositeAlarm.Arn
