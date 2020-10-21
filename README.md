@@ -10,7 +10,7 @@ Elastic Load Balancing automatically distributes incoming application traffic ac
 
 Elastic Load Balancer (ELB), as describe above, do no support Fully Qualified Domain Name (FQDN) as targets. This repository describes solution that uses AWS Lambda (Lambda) to add FQDN as target for Elastic Load Balancer.
 
-You create an ELB with target group of type ip. Once ELB is created, you will deploy this Lambda. Lambda periodically resolves the target FQDN and registers/deregisters IP addresses as targets from a target group. **For more information,refer to blog:[Hostname-as-Target for Newtork Load Balancer](https://insertbloglink)**
+You create an ELB with target group of type ip. Once ELB is created, you will deploy this Lambda. Lambda periodically resolves the target FQDN and registers/deregisters IP addresses as targets from a target group. **For more information, refer to blog:[Hostname-as-Target for Newtork Load Balancers](https://aws-blogs-prod.amazon.com/networking-and-content-delivery/?p=5153&preview=true)**
 
 ## Security
 
