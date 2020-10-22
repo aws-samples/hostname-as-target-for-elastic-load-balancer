@@ -255,14 +255,14 @@ Parameters:
   DstS3BucketName:
     Description: >-
       Destination S3 bucket name. Required for this stack. If using existing
-      bucket, set CreateDstS3BucketCondition to No, else set to Yes.
+      bucket, set CreateDstS3BucketCondition parameter to No, else set it to Yes.
     Type: String
     ConstraintDescription: Must be globally unique S3 bucket name.
   CreateDstS3BucketCondition: 
     Description: >- 
-      Do you want to create new S3 bucket or use an existing one? If you using
+      Do you want to create new S3 bucket or use an existing one? If using
       an existing bucket, verify it is in the same region as the region from
-      from you are launching this stack (launch stack region).
+      where you are launching this stack (launch stack region).
     Default: "No"
     AllowedValues: ["Yes", "No"]
     Type: String
