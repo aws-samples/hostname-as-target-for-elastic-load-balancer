@@ -1,6 +1,6 @@
 ## Elastic Load Balancer: Using hostname as a target
 
-**For more information, refer to blog: [Hostname-as-Target for Newtork Load Balancers](https://aws-blogs-prod.amazon.com/networking-and-content-delivery/?p=5153&preview=true)**
+**For more information, refer to blog: [Hostname-as-Target for Newtork Load Balancers](https://aws.amazon.com/blogs/networking-and-content-delivery/hostname-as-target-for-network-load-balancers/)**
 
 Elastic Load Balancing automatically distributes incoming application traffic across multiple targets, such as Amazon EC2 instances, containers, IP addresses, and Lambda functions. It can handle the varying load of your application traffic in a single Availability Zone or across multiple Availability Zones. Elastic Load Balancing offers three types of load balancers that all feature the high availability, automatic scaling, and robust security necessary to make your applications fault tolerant:
 
@@ -14,7 +14,7 @@ Elastic Load Balancer (ELB), as describe above, do no support Fully Qualified Do
 
 You create an ELB with target group of type ip. Once ELB is created, you will deploy this Lambda. Lambda periodically resolves the target FQDN and registers/deregisters IP addresses as targets from a target group.
 
-**For more information, refer to blog: [Hostname-as-Target for Newtork Load Balancers](https://aws-blogs-prod.amazon.com/networking-and-content-delivery/?p=5153&preview=true)**
+**For more information, refer to blog: [Hostname-as-Target for Newtork Load Balancers](https://aws.amazon.com/blogs/networking-and-content-delivery/hostname-as-target-for-network-load-balancers/)**
 
 ## Security
 
