@@ -19,7 +19,7 @@ Metadata:
     ParameterLabels:
       LambdaFunctionName:
         default: Name of Lambda Function
-      TopicEmailEndpiont:
+      TopicEmailEndpoint:
         default: Email for SNS Topic        
 
 Parameters:

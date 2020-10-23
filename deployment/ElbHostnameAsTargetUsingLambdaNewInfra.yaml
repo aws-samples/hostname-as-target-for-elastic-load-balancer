@@ -48,6 +48,7 @@ Metadata:
           default: Server Configuration
         Parameters:
           - EC2InstanceType
+          - EC2AmiId
           - EC2DiskSize
           - SSHLocation
       - Label:
@@ -103,6 +104,8 @@ Metadata:
         default: Network CIDR to access servers
       EC2InstanceType:
         default: EC2 instance type for servers
+      EC2AmiId:
+        default: Latest AMI ID for client and server (ec2 instance)          
       EC2DiskSize:
         default: EC2 instance size in GB for servers
       ElbName:
@@ -202,6 +205,9 @@ Parameters:
     Default: t2.micro
     AllowedValues: [t2.micro]
     Type: String
+  EC2AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'       
   EC2DiskSize:
     Description: >-
       Enter desired disk size in GB for server
@@ -584,19 +590,25 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:PutObject
-                  - s3:ListAllMyBuckets
-                  - s3:Get*
-                  - s3:CreateBucket
-                  - s3:ListBucket
+                  - s3:GetObject
                   - s3:DeleteObject
-                  - ssm:GetParameter
+                  - s3:CreateBucket
+                  - s3:DeleteBucket
+                Resource: !Join
+                  - ""
+                  - - 'arn:aws:s3:::'
+                    - !Ref DstS3BucketName
+                    - '/*'            
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
                   - cloudwatch:PutMetricData
                   - elasticloadbalancing:RegisterTargets
-                  - elasticloadbalancing:Describe*
                   - elasticloadbalancing:DeregisterTargets
+                  - elasticloadbalancing:DescribeTargetHealth
                   - ec2:CreateNetworkInterface
                   - ec2:DescribeNetworkInterfaces
-                  - ec2:DeleteNetworkInterface               
+                  - ec2:DeleteNetworkInterface                       
                 Resource: "*"
 
   S3ObjectLambda:
@@ -607,7 +619,7 @@ Resources:
         - LambdaExecutionRole
         - Arn
       Code:
-        ZipFile: !Sub |
+        ZipFile: |
           import json
           import logging
           import os
@@ -683,55 +695,6 @@ Resources:
       DstS3Bucket: !If [CreateDstS3Bucket, !Ref S3BucketForLambda, !Ref DstS3BucketName]
       AwsRegion: !Ref AWS::Region
 
-  AmznLinux2Ami:
-    Type: AWS::Lambda::Function
-    Properties:
-      Handler: 'index.handler'
-      Role: !GetAtt
-        - LambdaExecutionRole
-        - Arn
-      Code:
-        ZipFile: |
-          import boto3
-          import cfnresponse
-          import json
-          import logging
-          def handler(event, context):
-            logger = logging.getLogger()
-            logger.setLevel(logging.INFO)
-            responseData = {}
-            responseStatus = cfnresponse.FAILED
-            logger.info('Received event: {}'.format(json.dumps(event)))
-            if event["RequestType"] == "Delete":
-              responseStatus = cfnresponse.SUCCESS
-              cfnresponse.send(event, context, responseStatus, responseData)
-            if event["RequestType"] == "Create":
-              try:
-                print("Retrieving Amazon Linux 2 ami-id")
-                ssm = boto3.client('ssm')
-                name = '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
-                response = ssm.get_parameter(
-                  Name = name
-                )
-                image = response['Parameter']['Value']
-                print(f"amazon linux 2 image: {image}")
-              except Exception as e:
-                logger.info('boto3.client failure: {}'.format(e))
-              responseData['Image'] = image
-              responseStatus = cfnresponse.SUCCESS
-              print(responseData)
-              cfnresponse.send(event, context, responseStatus, responseData)
-      Runtime: python3.7
-      Timeout: 30
-
-  RetrieveImage:
-    Type: Custom::RetrieveImage
-    Properties:
-      ServiceToken:
-        !GetAtt
-          - AmznLinux2Ami
-          - Arn
-
   Server1:
     DependsOn: ['NatGateway1']
     Type: AWS::EC2::Instance
@@ -760,9 +723,7 @@ Resources:
               owner: "ec2-user"
               group: "ec2-user"
     Properties:
-      ImageId: !GetAtt
-        - RetrieveImage
-        - Image
+      ImageId: !Ref EC2AmiId
       KeyName: !Ref KeyPairName
       InstanceType: !Ref EC2InstanceType
       SecurityGroupIds:
@@ -821,9 +782,7 @@ Resources:
               owner: "ec2-user"
               group: "ec2-user"
     Properties:
-      ImageId: !GetAtt
-        - RetrieveImage
-        - Image
+      ImageId: !Ref EC2AmiId
       KeyName: !Ref KeyPairName
       InstanceType: !Ref EC2InstanceType
       SecurityGroupIds:
@@ -857,9 +816,7 @@ Resources:
   Client1:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !GetAtt
-        - RetrieveImage
-        - Image
+      ImageId: !Ref EC2AmiId
       KeyName: !Ref KeyPairName
       InstanceType: !Ref EC2InstanceType
       SecurityGroupIds:
@@ -1076,9 +1033,6 @@ Resources:
       AlarmDescription: Lambda composite. Alarm triggers when either of the metric alarms trigger
 
 Outputs:
-  AmznLinux2AmiId:
-    Description: 'Latest Amazon Linux 2 image'
-    Value: !GetAtt RetrieveImage.Image
   Server1PrivateIp:
     Description: Server1 private ip
     Value:
@@ -1113,9 +1067,6 @@ Outputs:
   S3ObjectLambdaArn:
     Description: S3Object Lambda ARN
     Value: !GetAtt S3ObjectLambda.Arn
-  AmazonLinux2AmiArn:
-    Description: AmazonLinux2Ami Lambda ARN
-    Value: !GetAtt AmznLinux2Ami.Arn
   ElbHostnameTargetArn:
     Description: ElbHostnameTarget Lambda ARN
     Value: !GetAtt ElbHostnameTarget.Arn
