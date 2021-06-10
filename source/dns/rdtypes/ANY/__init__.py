@@ -1,3 +1,5 @@
+# Copyright (C) Dnspython Contributors, see LICENSE for text of ISC license
+
 # Copyright (C) 2003-2007, 2009-2011 Nominum, Inc.
 #
 # Permission to use, copy, modify, and distribute this software and its
@@ -17,10 +19,13 @@
 
 __all__ = [
     'AFSDB',
+    'AVC',
+    'CAA',
     'CDNSKEY',
     'CDS',
     'CERT',
     'CNAME',
+    'CSYNC',
     'DLV',
     'DNAME',
     'DNSKEY',
@@ -37,14 +42,20 @@ __all__ = [
     'NSEC',
     'NSEC3',
     'NSEC3PARAM',
-    'TLSA',
+    'OPENPGPKEY',
+    'OPT',
     'PTR',
     'RP',
     'RRSIG',
     'RT',
+    'SMIMEA',
     'SOA',
     'SPF',
     'SSHFP',
+    'TKEY',
+    'TLSA',
+    'TSIG',
     'TXT',
+    'URI',
     'X25',
 ]
